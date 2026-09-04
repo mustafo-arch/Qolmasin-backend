@@ -1,0 +1,610 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  BUSINESS_OWNER
+  BUSINESS_STAFF
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum BusinessType {
+  RESTAURANT
+  CAFE
+  BAKERY
+  CONFECTIONERY
+  SUPERMARKET
+  MINIMARKET
+  MARKET_VENDOR
+  MARKET_SELLER
+  FARMER
+  CATERING
+  HOTEL
+  MANUFACTURER
+  OTHER
+  OTHER_FOOD
+}
+
+enum BusinessStatus {
+  DRAFT
+  PENDING_REVIEW
+  VERIFIED
+  REJECTED
+  SUSPENDED
+}
+
+enum BusinessMemberRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum BusinessMemberStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+}
+
+enum BranchStatus {
+  ACTIVE
+  TEMPORARILY_CLOSED
+  SUSPENDED
+  ARCHIVED
+}
+
+enum CategoryStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum OfferStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  LOW_STOCK
+  SOLD_OUT
+  EXPIRED
+  CANCELLED
+  HIDDEN
+}
+
+enum OfferType {
+  SURPLUS
+  EXPIRING_SOON
+  OVERSTOCK
+  DAILY_SPECIAL
+  LAST_MINUTE
+  CLEARANCE
+}
+
+enum PriceAnomalyStatus {
+  NORMAL
+  SUSPICIOUS
+  REVIEW_REQUIRED
+  RESOLVED
+}
+
+enum QuantityUnit {
+  PIECE
+  GRAM
+  KILOGRAM
+  LITER
+  PACK
+  PORTION
+  BOX
+}
+
+enum ReviewStatus {
+  PUBLISHED
+  HIDDEN
+}
+
+enum ReportReason {
+  FAKE_DISCOUNT
+  WRONG_PRICE
+  WRONG_LOCATION
+  WRONG_HOURS
+  EXPIRED_OFFER
+  EXPIRED_PRODUCT
+  BAD_QUALITY
+  WRONG_DESCRIPTION
+  BUSINESS_CLOSED
+  PRICE_MISMATCH
+  UNSAFE_PRODUCT
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+enum OrderStatus {
+  PENDING
+  RESERVED
+  CONFIRMED
+  READY
+  COMPLETED
+  CANCELLED
+  EXPIRED
+  REFUNDED
+}
+
+model User {
+  id                      String                   @id @default(uuid()) @db.Uuid
+  phone                   String                   @unique @db.VarChar(32)
+  email                   String?                  @unique @db.VarChar(254)
+  emailVerifiedAt         DateTime?                @map("email_verified_at") @db.Timestamptz(3)
+  passwordHash            String                   @map("password_hash") @db.VarChar(255)
+  fullName                String                   @map("full_name") @db.VarChar(120)
+  role                    UserRole                 @default(CUSTOMER)
+  status                  UserStatus               @default(ACTIVE)
+  authVersion             Int                      @default(0) @map("auth_version")
+  createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt               DateTime?                @map("deleted_at") @db.Timestamptz(3)
+  sessions                AuthSession[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  ownedBusinesses         Business[]               @relation("BusinessOwner")
+  businessMemberships     BusinessMember[]
+  reviewedBusinesses      Business[]               @relation("BusinessReviewer")
+  auditLogs               AuditLog[]               @relation("AuditActor")
+  orders                  Order[]
+  favoriteBusinesses      FavoriteBusiness[]
+  dealAlerts              DealAlert[]
+  notifications           Notification[]
+  reviews                 BusinessReview[]
+  reports                 BusinessReport[]         @relation("ReportReporter")
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model Business {
+  id           String             @id @default(uuid()) @db.Uuid
+  ownerId      String             @map("owner_id") @db.Uuid
+  reviewedById String?            @map("reviewed_by_id") @db.Uuid
+  name         String             @db.VarChar(160)
+  slug         String             @unique @db.VarChar(180)
+  description  String?            @db.Text
+  type         BusinessType
+  status       BusinessStatus     @default(DRAFT)
+  statusReason String?            @map("status_reason") @db.VarChar(1000)
+  verifiedAt   DateTime?          @map("verified_at") @db.Timestamptz(3)
+  reviewedAt   DateTime?          @map("reviewed_at") @db.Timestamptz(3)
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime?          @map("deleted_at") @db.Timestamptz(3)
+  owner        User               @relation("BusinessOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  reviewedBy   User?              @relation("BusinessReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  members      BusinessMember[]
+  branches     Branch[]
+  products     Product[]
+  favorites    FavoriteBusiness[]
+  reviews      BusinessReview[]
+  reports      BusinessReport[]
+
+  @@index([ownerId])
+  @@index([reviewedById])
+  @@index([status, createdAt])
+  @@map("businesses")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorRole   UserRole @map("actor_role")
+  action      String   @db.VarChar(100)
+  entityType  String   @map("entity_type") @db.VarChar(80)
+  entityId    String   @map("entity_id") @db.Uuid
+  requestId   String?  @map("request_id") @db.VarChar(100)
+  ipHash      String?  @map("ip_hash") @db.Char(64)
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model FavoriteBusiness {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, businessId])
+  @@index([userId, createdAt])
+  @@index([businessId, createdAt])
+  @@map("favorite_businesses")
+}
+
+model DealAlert {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  categoryId   String?   @map("category_id") @db.Uuid
+  productQuery String?   @map("product_query") @db.VarChar(180)
+  latitude     Decimal   @db.Decimal(9, 6)
+  longitude    Decimal   @db.Decimal(9, 6)
+  radius       Decimal   @default(3) @db.Decimal(6, 2)
+  minDiscount  Decimal?  @map("min_discount") @db.Decimal(5, 2)
+  maxPrice     Decimal?  @map("max_price") @db.Decimal(14, 2)
+  enabled      Boolean   @default(true)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category     Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, enabled, createdAt])
+  @@index([categoryId, enabled])
+  @@map("deal_alerts")
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  type      String    @db.VarChar(80)
+  title     String    @db.VarChar(180)
+  message   String    @db.VarChar(1000)
+  data      Json?
+  readAt    DateTime? @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model BusinessMember {
+  id          String               @id @default(uuid()) @db.Uuid
+  businessId  String               @map("business_id") @db.Uuid
+  userId      String               @map("user_id") @db.Uuid
+  role        BusinessMemberRole
+  status      BusinessMemberStatus @default(ACTIVE)
+  permissions String[]             @default([])
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  business    Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, userId])
+  @@index([businessId, status])
+  @@index([userId, status])
+  @@map("business_members")
+}
+
+model Branch {
+  id             String         @id @default(uuid()) @db.Uuid
+  businessId     String         @map("business_id") @db.Uuid
+  name           String         @db.VarChar(160)
+  address        String         @db.VarChar(300)
+  countryCode    String         @map("country_code") @db.Char(2)
+  region         String?        @db.VarChar(120)
+  city           String         @db.VarChar(120)
+  district       String?        @db.VarChar(120)
+  latitude       Decimal        @db.Decimal(9, 6)
+  longitude      Decimal        @db.Decimal(9, 6)
+  phone          String?        @db.VarChar(32)
+  timezone       String         @db.VarChar(64)
+  currency       String         @db.Char(3)
+  status         BranchStatus   @default(ACTIVE)
+  openingTime    String?        @map("opening_time") @db.Char(5)
+  closingTime    String?        @map("closing_time") @db.Char(5)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt      DateTime?      @map("deleted_at") @db.Timestamptz(3)
+  business       Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  offers         Offer[]
+  orders         Order[]
+  priceHistory   PriceHistory[]
+  priceAnomalies PriceAnomaly[]
+
+  @@index([businessId])
+  @@index([status])
+  @@index([countryCode, city, status])
+  @@map("branches")
+}
+
+model Category {
+  id          String         @id @default(uuid()) @db.Uuid
+  parentId    String?        @map("parent_id") @db.Uuid
+  name        String         @db.VarChar(120)
+  slug        String         @unique @db.VarChar(140)
+  description String?        @db.Text
+  status      CategoryStatus @default(ACTIVE)
+  sortOrder   Int            @default(0) @map("sort_order")
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  parent      Category?      @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    Category[]     @relation("CategoryTree")
+  products    Product[]
+  dealAlerts  DealAlert[]
+
+  @@index([parentId])
+  @@index([status, sortOrder])
+  @@map("categories")
+}
+
+model Product {
+  id             String         @id @default(uuid()) @db.Uuid
+  businessId     String         @map("business_id") @db.Uuid
+  categoryId     String         @map("category_id") @db.Uuid
+  name           String         @db.VarChar(180)
+  description    String?        @db.Text
+  regularPrice   Decimal?       @map("regular_price") @db.Decimal(14, 2)
+  quantityUnit   QuantityUnit   @default(PIECE) @map("quantity_unit")
+  status         ProductStatus  @default(DRAFT)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt      DateTime?      @map("deleted_at") @db.Timestamptz(3)
+  business       Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category       Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  images         ProductImage[]
+  offers         Offer[]
+  priceHistory   PriceHistory[]
+  priceAnomalies PriceAnomaly[]
+
+  @@index([businessId, status])
+  @@index([categoryId, status])
+  @@map("products")
+}
+
+model ProductImage {
+  id         String   @id @default(uuid()) @db.Uuid
+  productId  String   @map("product_id") @db.Uuid
+  url        String   @db.VarChar(2048)
+  storageKey String   @unique @map("storage_key") @db.VarChar(512)
+  mimeType   String   @map("mime_type") @db.VarChar(100)
+  size       Int
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, sortOrder])
+  @@map("product_images")
+}
+
+model Offer {
+  id                  String             @id @default(uuid()) @db.Uuid
+  branchId            String             @map("branch_id") @db.Uuid
+  productId           String             @map("product_id") @db.Uuid
+  originalPrice       Decimal            @map("original_price") @db.Decimal(14, 2)
+  discountPrice       Decimal            @map("discount_price") @db.Decimal(14, 2)
+  referencePrice      Decimal?           @map("reference_price") @db.Decimal(14, 2)
+  offerType           OfferType          @default(SURPLUS) @map("offer_type")
+  autoDiscountEnabled Boolean            @default(false) @map("auto_discount_enabled")
+  quantity            Int
+  reservedQuantity    Int                @default(0) @map("reserved_quantity")
+  soldQuantity        Int                @default(0) @map("sold_quantity")
+  pickupStart         DateTime           @map("pickup_start") @db.Timestamptz(3)
+  pickupEnd           DateTime           @map("pickup_end") @db.Timestamptz(3)
+  status              OfferStatus        @default(DRAFT)
+  publishedAt         DateTime?          @map("published_at") @db.Timestamptz(3)
+  expiresAt           DateTime           @map("expires_at") @db.Timestamptz(3)
+  bestBeforeAt        DateTime?          @map("best_before_at") @db.Timestamptz(3)
+  preparedAt          DateTime?          @map("prepared_at") @db.Timestamptz(3)
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  branch              Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  product             Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  orderItems          OrderItem[]
+  priceAnomalies      PriceAnomaly[]
+  discountSchedules   DiscountSchedule[]
+  reports             BusinessReport[]
+
+  @@index([branchId, status, expiresAt])
+  @@index([productId, status])
+  @@index([status, expiresAt])
+  @@map("offers")
+}
+
+model PriceHistory {
+  id         String   @id @default(uuid()) @db.Uuid
+  productId  String   @map("product_id") @db.Uuid
+  branchId   String?  @map("branch_id") @db.Uuid
+  price      Decimal  @db.Decimal(14, 2)
+  source     String   @db.VarChar(80)
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branch     Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([productId, branchId, recordedAt])
+  @@index([recordedAt])
+  @@map("price_history")
+}
+
+model PriceAnomaly {
+  id              String             @id @default(uuid()) @db.Uuid
+  offerId         String             @map("offer_id") @db.Uuid
+  productId       String             @map("product_id") @db.Uuid
+  branchId        String             @map("branch_id") @db.Uuid
+  previousPrice   Decimal            @map("previous_price") @db.Decimal(14, 2)
+  currentPrice    Decimal            @map("current_price") @db.Decimal(14, 2)
+  increasePercent Decimal            @map("increase_percent") @db.Decimal(7, 2)
+  status          PriceAnomalyStatus @default(REVIEW_REQUIRED)
+  reason          String?            @db.VarChar(500)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  resolvedAt      DateTime?          @map("resolved_at") @db.Timestamptz(3)
+  offer           Offer              @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  product         Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  branch          Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([productId, branchId, createdAt])
+  @@map("price_anomalies")
+}
+
+model DiscountSchedule {
+  id        String   @id @default(uuid()) @db.Uuid
+  offerId   String   @map("offer_id") @db.Uuid
+  startsAt  DateTime @map("starts_at") @db.Timestamptz(3)
+  price     Decimal  @db.Decimal(14, 2)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  offer     Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, startsAt])
+  @@index([offerId, startsAt])
+  @@map("discount_schedules")
+}
+
+model BusinessReview {
+  id         String       @id @default(uuid()) @db.Uuid
+  userId     String       @map("user_id") @db.Uuid
+  businessId String       @map("business_id") @db.Uuid
+  rating     Int
+  comment    String?      @db.VarChar(1000)
+  status     ReviewStatus @default(PUBLISHED)
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business   Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, businessId])
+  @@index([businessId, status, createdAt])
+  @@map("business_reviews")
+}
+
+model BusinessReport {
+  id         String       @id @default(uuid()) @db.Uuid
+  reporterId String       @map("reporter_id") @db.Uuid
+  businessId String?      @map("business_id") @db.Uuid
+  offerId    String?      @map("offer_id") @db.Uuid
+  reason     ReportReason
+  details    String?      @db.VarChar(1000)
+  status     ReportStatus @default(OPEN)
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  resolvedAt DateTime?    @map("resolved_at") @db.Timestamptz(3)
+  reporter   User         @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  business   Business?    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  offer      Offer?       @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([businessId, createdAt])
+  @@index([offerId, createdAt])
+  @@map("business_reports")
+}
+
+model Order {
+  id             String      @id @default(uuid()) @db.Uuid
+  userId         String      @map("user_id") @db.Uuid
+  branchId       String      @map("branch_id") @db.Uuid
+  status         OrderStatus @default(RESERVED)
+  subtotal       Decimal     @db.Decimal(14, 2)
+  discount       Decimal     @db.Decimal(14, 2)
+  total          Decimal     @db.Decimal(14, 2)
+  currency       String      @db.Char(3)
+  pickupCodeHash String      @map("pickup_code_hash") @db.Char(64)
+  pickupAttempts Int         @default(0) @map("pickup_attempts")
+  reservedUntil  DateTime    @map("reserved_until") @db.Timestamptz(3)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  completedAt    DateTime?   @map("completed_at") @db.Timestamptz(3)
+  cancelledAt    DateTime?   @map("cancelled_at") @db.Timestamptz(3)
+  user           User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  branch         Branch      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  items          OrderItem[]
+
+  @@index([userId, createdAt])
+  @@index([branchId, status, createdAt])
+  @@index([status, reservedUntil])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                  String  @id @default(uuid()) @db.Uuid
+  orderId             String  @map("order_id") @db.Uuid
+  offerId             String  @map("offer_id") @db.Uuid
+  productNameSnapshot String  @map("product_name_snapshot") @db.VarChar(180)
+  unitOriginalPrice   Decimal @map("unit_original_price") @db.Decimal(14, 2)
+  unitSalePrice       Decimal @map("unit_sale_price") @db.Decimal(14, 2)
+  quantity            Int
+  lineTotal           Decimal @map("line_total") @db.Decimal(14, 2)
+  order               Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  offer               Offer   @relation(fields: [offerId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, offerId])
+  @@index([offerId])
+  @@map("order_items")
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  email     String    @db.VarChar(254)
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@index([expiresAt])
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  email           String    @db.VarChar(254)
+  tokenHash       String    @unique @map("token_hash") @db.Char(64)
+  requestedIpHash String?   @map("requested_ip_hash") @db.Char(64)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt          DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+model AuthSession {
+  id                      String    @id @default(uuid()) @db.Uuid
+  userId                  String    @map("user_id") @db.Uuid
+  refreshTokenHash        String    @map("refresh_token_hash") @db.VarChar(255)
+  refreshTokenFingerprint String    @map("refresh_token_fingerprint") @db.Char(64)
+  userAgent               String?   @map("user_agent") @db.VarChar(512)
+  ipHash                  String?   @map("ip_hash") @db.Char(64)
+  deviceName              String?   @map("device_name") @db.VarChar(120)
+  expiresAt               DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt               DateTime? @map("revoked_at") @db.Timestamptz(3)
+  lastUsedAt              DateTime? @map("last_used_at") @db.Timestamptz(3)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([userId, revokedAt])
+  @@map("auth_sessions")
+}
